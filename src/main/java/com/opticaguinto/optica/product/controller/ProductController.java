@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import static org.springframework.http.HttpStatus.*;
 import com.opticaguinto.optica.common.service.ClinicSupport;
+import com.opticaguinto.optica.common.web.CreatedResource;
+import org.springframework.http.ResponseEntity;
 
 @RestController
 @RequestMapping("/api")
@@ -45,13 +47,15 @@ public class ProductController {
     // Los productos nacen sin existencias; las entradas se registran mediante
     // ajustes de inventario.
     @PostMapping("/products")
-    @ResponseStatus(CREATED)
     @PreAuthorize("hasRole('ADMIN')")
-    public Object product(@Valid @RequestBody ProductInput p) {
-        return clinic.one("products",
-                db.queryForObject("INSERT INTO products(sku,name,category,price,stock) VALUES (?,?,?,?,0) RETURNING id",
-                        Long.class, p.sku(), p.name(), p.category(), p.price()));
+    public ResponseEntity<Object> product(@Valid @RequestBody ProductInput p) {
+        long id = db.queryForObject("INSERT INTO products(sku,name,category,price,stock) VALUES (?,?,?,?,0) RETURNING id",
+                        Long.class, p.sku(), p.name(), p.category(), p.price());
+        return CreatedResource.at("/api/products/{id}", id, clinic.one("products", id));
     }
+
+    @GetMapping("/products/{id}")
+    public Object product(@PathVariable long id) { return clinic.one("products", id); }
 
 
     // Edita el catálogo sin alterar el precio histórico guardado en ventas

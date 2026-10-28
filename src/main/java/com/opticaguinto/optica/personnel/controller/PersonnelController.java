@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import static org.springframework.http.HttpStatus.*;
 import com.opticaguinto.optica.common.service.ClinicSupport;
+import com.opticaguinto.optica.common.web.CreatedResource;
+import org.springframework.http.ResponseEntity;
 
 @RestController
 @RequestMapping("/api")
@@ -57,10 +59,9 @@ public class PersonnelController {
   // La transacción garantiza que la cuenta y todos sus roles se creen como una
   // sola operación.
   @PostMapping("/users")
-  @ResponseStatus(CREATED)
   @PreAuthorize("hasRole('ADMIN')")
   @Transactional
-  public Object createUser(@Valid @RequestBody UserInput u) {
+  public ResponseEntity<Object> createUser(@Valid @RequestBody UserInput u) {
     clinic.checkPassword(u.password());
     long id = db.queryForObject(
         "INSERT INTO users(first_name,paternal_surname,maternal_surname,email,password_hash) VALUES (?,?,?,?,?) RETURNING id",
@@ -68,7 +69,7 @@ public class PersonnelController {
         encoder.encode(u.password()));
     for (String role : u.roles())
       db.update("INSERT INTO user_roles(user_id,role_id) SELECT ?,id FROM roles WHERE name=?", id, role);
-    return Map.of("id", id);
+    return CreatedResource.at("/api/users/{id}", id, Map.of("id", id));
   }
 
 
@@ -83,6 +84,17 @@ public class PersonnelController {
         "SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? ORDER BY r.name",
         String.class,user.get("id")));
     return result;
+  }
+
+  @GetMapping("/users/{id}")
+  @PreAuthorize("hasRole('ADMIN')")
+  public Object user(@PathVariable long id) {
+    var user = new LinkedHashMap<>(db.queryForMap(
+        "SELECT id,first_name,paternal_surname,maternal_surname,email,active FROM users WHERE id=?", id));
+    user.put("roles", db.queryForList(
+        "SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? ORDER BY r.name",
+        String.class, id));
+    return user;
   }
 
     // La agenda necesita nombres e identificadores, sin exponer correos ni datos de autenticación.

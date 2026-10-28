@@ -5,6 +5,8 @@ import com.opticaguinto.optica.patient.dto.PatientResponse;
 import com.opticaguinto.optica.patient.service.PatientService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.ResponseEntity;
+import com.opticaguinto.optica.common.web.CreatedResource;
 import static org.springframework.http.HttpStatus.*;
 
 @RestController
@@ -35,9 +37,9 @@ public class PatientController {
   // PostgreSQL devuelve el ID generado con RETURNING; la respuesta contiene el
   // registro creado.
   @PostMapping("/patients")
-  @ResponseStatus(CREATED)
-  public Object createPatient(@Valid @RequestBody PatientInput p) {
-    return PatientResponse.from(patients.create(p));
+  public ResponseEntity<PatientResponse> createPatient(@Valid @RequestBody PatientInput p) {
+    var patient = patients.create(p);
+    return CreatedResource.at("/api/patients/{id}", patient.getId(), PatientResponse.from(patient));
   }
 
 

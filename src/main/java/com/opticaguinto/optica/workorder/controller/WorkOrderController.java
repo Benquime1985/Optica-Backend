@@ -17,6 +17,8 @@ import java.util.Set;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.CREATED;
+import org.springframework.http.ResponseEntity;
+import com.opticaguinto.optica.common.web.CreatedResource;
 
 @RestController
 @RequestMapping("/api/work-orders")
@@ -33,9 +35,10 @@ public class WorkOrderController {
     }
 
     @PostMapping
-    @ResponseStatus(CREATED)
-    public Object create(@Valid @RequestBody WorkOrderService.OrderInput input, Authentication auth) {
-        return service.create(input, clinic.userId(auth));
+    public ResponseEntity<Object> create(@Valid @RequestBody WorkOrderService.OrderInput input, Authentication auth) {
+        Object created = service.create(input, clinic.userId(auth));
+        long id = ((Number)((java.util.Map<?, ?>) created).get("id")).longValue();
+        return CreatedResource.at("/api/work-orders/{id}", id, created);
     }
 
     @PutMapping("/{id}")

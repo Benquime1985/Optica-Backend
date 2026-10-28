@@ -14,6 +14,8 @@ import static org.springframework.http.HttpStatus.*;
 import com.opticaguinto.optica.common.service.ClinicSupport;
 import com.opticaguinto.optica.cash.service.CashService;
 import com.opticaguinto.optica.workorder.service.WorkOrderService;
+import com.opticaguinto.optica.common.web.CreatedResource;
+import org.springframework.http.ResponseEntity;
 
 @RestController
 @RequestMapping("/api")
@@ -40,10 +42,9 @@ public class SaleController {
     // Venta, partidas, descuento de existencias y movimientos forman una única
     // transacción.
     @PostMapping("/sales")
-    @ResponseStatus(CREATED)
     @PreAuthorize("hasAnyRole('ADMIN','SELLER')")
     @Transactional
-    public Object sale(@Valid @RequestBody SaleInput s, Authentication a) {
+    public ResponseEntity<Object> sale(@Valid @RequestBody SaleInput s, Authentication a) {
         clinic.activePatient(s.patientId());
         // Agrupa productos repetidos y los ordena por ID para adquirir bloqueos siempre
         // en el mismo orden.
@@ -81,7 +82,7 @@ public class SaleController {
             db.update("UPDATE products SET stock=stock-? WHERE id=?", entry.getValue(), entry.getKey());
             movement(entry.getKey(), -entry.getValue(), "Venta " + id, user);
         }
-        return saleDetail(id);
+        return CreatedResource.at("/api/sales/{id}", id, saleDetail(id));
     }
 
 
@@ -104,6 +105,22 @@ public class SaleController {
         result.put("refunds", db.queryForList("SELECT * FROM refunds WHERE sale_id=? ORDER BY id", id));
         result.put("work_orders", db.queryForList("SELECT * FROM work_orders WHERE sale_id=? ORDER BY id", id));
         return result;
+    }
+
+    @GetMapping("/sales/{id}/payments/{paymentId}")
+    @PreAuthorize("hasAnyRole('ADMIN','SELLER')")
+    public Object paymentDetail(@PathVariable long id, @PathVariable long paymentId) {
+        var rows = db.queryForList("SELECT * FROM payments WHERE id=? AND sale_id=?", paymentId, id);
+        if (rows.isEmpty()) throw new ResponseStatusException(NOT_FOUND, "Pago no encontrado");
+        return rows.getFirst();
+    }
+
+    @GetMapping("/sales/{id}/refunds/{refundId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Object refundDetail(@PathVariable long id, @PathVariable long refundId) {
+        var rows = db.queryForList("SELECT * FROM refunds WHERE id=? AND sale_id=?", refundId, id);
+        if (rows.isEmpty()) throw new ResponseStatusException(NOT_FOUND, "Reembolso no encontrado");
+        return rows.getFirst();
     }
 
 
@@ -130,20 +147,19 @@ public class SaleController {
     // El bloqueo evita que dos abonos concurrentes superen juntos el saldo de la
     // venta.
     @PostMapping("/sales/{id}/payments")
-    @ResponseStatus(CREATED)
     @PreAuthorize("hasAnyRole('ADMIN','SELLER')")
     @Transactional
-    public Object payment(@PathVariable long id, @Valid @RequestBody PaymentInput p, Authentication a) {
+    public ResponseEntity<Object> payment(@PathVariable long id, @Valid @RequestBody PaymentInput p, Authentication a) {
         var sale = lockSale(id);
         cash.validateMethod(p.method(), p.reference());
         var date = cash.lockToday();
         BigDecimal paid = ((BigDecimal) sale.get("paid")).add(p.amount());
         if (paid.compareTo((BigDecimal) sale.get("total")) > 0)
             throw new ResponseStatusException(CONFLICT, "El pago supera el saldo pendiente");
-        db.update("INSERT INTO payments(sale_id,amount,received_by,method,reference,business_date) VALUES (?,?,?,?,?,?)",
-                id, p.amount(), clinic.userId(a), p.method(), p.reference(), date);
+        long paymentId = db.queryForObject("INSERT INTO payments(sale_id,amount,received_by,method,reference,business_date) VALUES (?,?,?,?,?,?) RETURNING id",
+                Long.class, id, p.amount(), clinic.userId(a), p.method(), p.reference(), date);
         db.update("UPDATE sales SET paid=? WHERE id=?", paid, id);
-        return saleDetail(id);
+        return CreatedResource.child(paymentId, paymentDetail(id, paymentId));
     }
 
 
@@ -201,15 +217,14 @@ public class SaleController {
 
     // El abono original se conserva. Un reembolso parcial en una venta abierta aumenta su saldo pendiente.
     @PostMapping("/sales/{id}/refunds")
-    @ResponseStatus(CREATED)
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional
-    public Object refund(@PathVariable long id,@Valid @RequestBody RefundInput input,Authentication auth) {
+    public ResponseEntity<Object> refund(@PathVariable long id,@Valid @RequestBody RefundInput input,Authentication auth) {
         lockSale(id);
         cash.validateMethod(input.method(),input.reference());
         var date=cash.lockToday();
-        cash.refund(id,input.paymentId(),input.amount(),input.method(),input.reference(),input.reason(),clinic.userId(auth),date);
-        return saleDetail(id);
+        long refundId = cash.refund(id,input.paymentId(),input.amount(),input.method(),input.reference(),input.reason(),clinic.userId(auth),date);
+        return CreatedResource.child(refundId, refundDetail(id, refundId));
     }
 
 

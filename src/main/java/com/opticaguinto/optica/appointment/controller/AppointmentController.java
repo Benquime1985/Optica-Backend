@@ -7,6 +7,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.ResponseEntity;
+import com.opticaguinto.optica.common.web.CreatedResource;
 import static org.springframework.http.HttpStatus.*;
 import com.opticaguinto.optica.common.service.ClinicSupport;
 
@@ -29,9 +31,8 @@ public class AppointmentController {
   // Valida y registra la cita dentro de una transacción para proteger la reserva
   // del horario.
   @PostMapping("/appointments")
-  @ResponseStatus(CREATED)
   @Transactional
-  public Object appointment(@Valid @RequestBody AppointmentInput p) {
+  public ResponseEntity<Object> appointment(@Valid @RequestBody AppointmentInput p) {
     clinic.activePatient(p.patientId());
     clinic.optometrist(p.optometristId());
     if (!p.endsAt().isAfter(p.startsAt()))
@@ -46,9 +47,10 @@ public class AppointmentController {
         "SELECT count(*) FROM appointments WHERE optometrist_id=? AND status='SCHEDULED' AND starts_at < ? AND ends_at > ?",
         Long.class, p.optometristId(), p.endsAt(), p.startsAt()) > 0)
       throw new ResponseStatusException(CONFLICT, "El horario ya está ocupado");
-    return clinic.one("appointments", db.queryForObject(
+    long id = db.queryForObject(
         "INSERT INTO appointments(patient_id,optometrist_id,starts_at,ends_at,notes) VALUES (?,?,?,?,?) RETURNING id",
-        Long.class, p.patientId(), p.optometristId(), p.startsAt(), p.endsAt(), p.notes()));
+        Long.class, p.patientId(), p.optometristId(), p.startsAt(), p.endsAt(), p.notes());
+    return CreatedResource.at("/api/appointments/{id}", id, clinic.one("appointments", id));
   }
 
 
@@ -60,6 +62,9 @@ public class AppointmentController {
         "SELECT * FROM appointments WHERE starts_at>=? AND starts_at<? ORDER BY starts_at,id LIMIT ? OFFSET ?", from,
         to, clinic.pageSize(size), clinic.offset(page, size));
   }
+
+  @GetMapping("/appointments/{id}")
+  public Object appointment(@PathVariable long id) { return clinic.one("appointments", id); }
 
 
   // Una cita programada puede completarse o cancelarse; no se permite reabrirla

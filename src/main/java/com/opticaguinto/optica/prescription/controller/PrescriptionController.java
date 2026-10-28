@@ -11,6 +11,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import static org.springframework.http.HttpStatus.*;
 import com.opticaguinto.optica.common.service.ClinicSupport;
+import com.opticaguinto.optica.common.web.CreatedResource;
+import org.springframework.http.ResponseEntity;
 
 @RestController
 @RequestMapping("/api")
@@ -36,17 +38,20 @@ public class PrescriptionController {
   // La receta se atribuye al profesional autenticado; el cliente no puede elegir
   // otro autor.
   @PostMapping("/prescriptions")
-  @ResponseStatus(CREATED)
   @PreAuthorize("hasAnyRole('ADMIN','OPTOMETRIST')")
   @Transactional
-  public Object prescription(@Valid @RequestBody PrescriptionInput p, Authentication a) {
+  public ResponseEntity<Object> prescription(@Valid @RequestBody PrescriptionInput p, Authentication a) {
     clinic.activePatient(p.patientId());
     long id = db.queryForObject(
         "INSERT INTO prescriptions(patient_id,optometrist_id,examined_on,right_sphere,right_cylinder,right_axis,left_sphere,left_cylinder,left_axis,addition,pupillary_distance,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
         Long.class, p.patientId(), clinic.userId(a), p.examinedOn(), p.rightSphere(), p.rightCylinder(), p.rightAxis(),
         p.leftSphere(), p.leftCylinder(), p.leftAxis(), p.addition(), p.pupillaryDistance(), p.notes());
-    return clinic.one("prescriptions", id);
+    return CreatedResource.at("/api/prescriptions/{id}", id, clinic.one("prescriptions", id));
   }
+
+  @GetMapping("/prescriptions/{id}")
+  @PreAuthorize("hasAnyRole('ADMIN','OPTOMETRIST')")
+  public Object prescription(@PathVariable long id) { return clinic.one("prescriptions", id); }
 
 
   // El historial de recetas se reserva a administradores y optometristas.
